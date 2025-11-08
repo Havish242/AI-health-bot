@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Health Assistant — Chat</title>
+    <style>
+      :root{ --bg:#0b1020; --muted:#9aa4b2; --accent:#10a37f; --bubble-user: linear-gradient(180deg,#3b82f6,#2563eb); }
+      html,body{height:100%;margin:0}
+      body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px}
+      .chat{width:820px; max-width:100%; height:80vh; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; box-shadow:0 10px 30px rgba(2,6,23,.6); display:flex; flex-direction:column; overflow:hidden}
+      .top{display:flex; align-items:center; gap:12px; padding:18px 20px; border-bottom:1px solid rgba(255,255,255,0.03)}
+      .logo{width:40px; height:40px; border-radius:8px; background:var(--accent); display:flex; align-items:center; justify-content:center; color:white; font-weight:700}
+      .title{color:white; font-weight:600}
+      .subtitle{color:var(--muted); font-size:13px}
+      .body{display:flex; flex:1; min-height:0}
+      .messages{flex:1; padding:24px; overflow:auto; display:flex; flex-direction:column; gap:14px}
+      .sidebar{width:260px; border-left:1px solid rgba(255,255,255,0.02); background:rgba(255,255,255,0.01); padding:18px; color:var(--muted)}
+      .bubble{max-width:78%; padding:12px 14px; border-radius:12px; color:#e6eef1; line-height:1.4; box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+      .row{display:flex; gap:12px; align-items:flex-end}
+      .userRow{justify-content:flex-end}
+      .botAvatar{width:36px; height:36px; border-radius:10px; background:#111827; display:flex; align-items:center; justify-content:center; color:#9fb8b0}
+      .bubble.bot{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); color:#e6eef1}
+      .bubble.user{background:var(--bubble-user); color:white; border-radius:12px}
+      .timestamp{font-size:12px; color:var(--muted); margin-top:6px}
+      .composer{padding:12px 18px; border-top:1px solid rgba(255,255,255,0.03); display:flex; gap:10px; align-items:flex-end}
+      textarea{flex:1; min-height:44px; max-height:180px; resize:none; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); background:transparent; color:#e6eef1}
+      button.send{background:var(--accent); color:white; border:none; padding:10px 14px; border-radius:8px}
+      .toggle{margin-left:auto; display:flex; gap:8px; align-items:center; color:var(--muted)}
+      .typing{opacity:.85; font-style:italic}
+      .spinner{width:18px;height:18px;border-radius:50%;display:inline-block;vertical-align:middle;border:2px solid rgba(255,255,255,0.12); border-top-color:rgba(255,255,255,0.7); animation:spin 1s linear infinite}
+      @keyframes spin{to{transform:rotate(360deg)}}
+    </style>
+  </head>
+  <body>
+    <div class="chat" role="application">
+      <div class="top">
+        <div class="logo">HB</div>
+        <div>
+          <div class="title">Health Assistant</div>
+          <div class="subtitle">A demo — not a substitute for professional medical care.</div>
+        </div>
+        <div class="toggle">
+          <label for="aiToggle">AI mode</label>
+          <input type="checkbox" id="aiToggle" checked aria-label="Enable AI mode" />
+        </div>
+      </div>
+
+      <div class="body">
+        <div class="messages" id="messages" aria-live="polite"></div>
+
+        <div class="sidebar">
+          <strong>Tips</strong>
+          <ul>
+            <li>Be specific: include duration, severity, and any existing conditions.</li>
+            <li>Do not share personal identifiers or private health records.</li>
+            <li>For emergencies (chest pain, severe bleeding, difficulty breathing) call local emergency services.</li>
+          </ul>
+          <hr />
+          <button id="clearHistory" style="width:100%; padding:8px; border-radius:6px; background:#2b3140; color:#e6eef1; border:none; cursor:pointer">Clear history</button>
+        </div>
+      </div>
+
+      <div class="composer">
+        <textarea id="input" placeholder="Describe your symptom or ask a health question..." aria-label="Message input"></textarea>
+        <button class="send" id="send">Send</button>
+      </div>
+    </div>
+
+    <script>
+      const messagesEl = document.getElementById('messages');
+      const inputEl = document.getElementById('input');
+      const sendBtn = document.getElementById('send');
+      const aiToggle = document.getElementById('aiToggle');
+
+      function scrollToBottom(){ messagesEl.scrollTop = messagesEl.scrollHeight }
+
+      function formatTime(d){ return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }
+
+      function addUserMessage(text){
+        const row = document.createElement('div'); row.className = 'row userRow';
+        const bubble = document.createElement('div'); bubble.className = 'bubble user'; bubble.textContent = text;
+        row.appendChild(bubble);
+        messagesEl.appendChild(row);
+        const ts = document.createElement('div'); ts.className='timestamp'; ts.textContent = formatTime(new Date()); messagesEl.appendChild(ts);
+        scrollToBottom();
+      }
+
+      function addBotPlaceholder(){
+        const row = document.createElement('div'); row.className = 'row';
+        const avatar = document.createElement('div'); avatar.className='botAvatar'; avatar.textContent='HB';
+        const bubble = document.createElement('div'); bubble.className='bubble bot typing'; bubble.id = 'typingBubble';
+        const spinner = document.createElement('span'); spinner.className='spinner'; bubble.appendChild(spinner);
+        bubble.appendChild(document.createTextNode(' Thinking...'));
+        row.appendChild(avatar); row.appendChild(bubble);
+        messagesEl.appendChild(row);
+        scrollToBottom();
+      }
+
+      function replaceBotPlaceholder(text){
+        const bubble = document.getElementById('typingBubble');
+        if(!bubble) return;
+        bubble.className = 'bubble bot';
+        bubble.id = '';
+        bubble.textContent = text;
+        const ts = document.createElement('div'); ts.className='timestamp'; ts.textContent = formatTime(new Date()); messagesEl.appendChild(ts);
+        scrollToBottom();
+      }
+
+      async function sendMessage(){
+        const text = inputEl.value.trim(); if(!text) return;
+        addUserMessage(text);
+        inputEl.value=''; inputEl.focus();
+        // show typing
+        addBotPlaceholder();
+        sendBtn.disabled = true; inputEl.disabled = true;
+        try{
+          const resp = await fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message:text, use_ai: aiToggle.checked})});
+          if(!resp.ok) throw new Error('server '+resp.status);
+          const j = await resp.json();
+          replaceBotPlaceholder(j.reply || 'No reply');
+          // optional: show small notice whether AI was used
+          if(j.ai){
+            // could log or style differently; for now append small note
+            const note = document.createElement('div'); note.className='timestamp'; note.textContent = 'Response generated by AI model'; messagesEl.appendChild(note);
+          } else {
+            const note = document.createElement('div'); note.className='timestamp'; note.textContent = 'Response from local assistant'; messagesEl.appendChild(note);
+          }
+        }catch(err){
+          replaceBotPlaceholder('Error: '+err.message);
+        }finally{
+          sendBtn.disabled = false; inputEl.disabled = false; inputEl.focus();
+        }
+      }
+
+      sendBtn.addEventListener('click', sendMessage);
+      inputEl.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
+        if(e.key === 'Enter' && e.ctrlKey){ e.preventDefault(); sendMessage(); }
+      });
+
+      // Load saved history on startup and show initial greeting only if no history
+      async function loadHistoryAndInit(){
+        try{
+          const resp = await fetch('/history');
+          if(resp.ok){
+            const j = await resp.json();
+            const hist = j.history || [];
+            if(hist.length){
+              // render saved exchanges in order
+              for(const e of hist){
+                // user message
+                const userRow = document.createElement('div'); userRow.className = 'row userRow';
+                const userBubble = document.createElement('div'); userBubble.className = 'bubble user'; userBubble.textContent = e.user || '';
+                userRow.appendChild(userBubble); messagesEl.appendChild(userRow);
+                const uts = document.createElement('div'); uts.className='timestamp'; uts.textContent = (e.timestamp? new Date(e.timestamp).toLocaleString(): formatTime(new Date())); messagesEl.appendChild(uts);
+
+                // bot reply
+                const botRow = document.createElement('div'); botRow.className = 'row';
+                const avatar = document.createElement('div'); avatar.className='botAvatar'; avatar.textContent='HB';
+                const botBubble = document.createElement('div'); botBubble.className='bubble bot'; botBubble.textContent = e.reply || '';
+                botRow.appendChild(avatar); botRow.appendChild(botBubble); messagesEl.appendChild(botRow);
+                const bts = document.createElement('div'); bts.className='timestamp'; bts.textContent = (e.timestamp? new Date(e.timestamp).toLocaleString(): formatTime(new Date())); messagesEl.appendChild(bts);
+
+                if(e.ai){
+                  const note = document.createElement('div'); note.className='timestamp'; note.textContent = 'Response generated by AI model'; messagesEl.appendChild(note);
+                } else {
+                  const note = document.createElement('div'); note.className='timestamp'; note.textContent = 'Response from local assistant'; messagesEl.appendChild(note);
+                }
+              }
+              scrollToBottom();
+            } else {
+              // no history: show initial greeting
+              showInitialGreeting();
+            }
+          } else {
+            showInitialGreeting();
+          }
+        }catch(err){
+          // on any error, fallback to greeting
+          showInitialGreeting();
+        }
+      }
+
+      function showInitialGreeting(){
+        const avatar = document.createElement('div'); avatar.className='botAvatar'; avatar.textContent='HB';
+        const row = document.createElement('div'); row.className='row';
+        const bubble = document.createElement('div'); bubble.className='bubble bot'; bubble.textContent = "Hello — I'm HealthBot. Tell me your symptoms or ask a health question. If this is an emergency, call local emergency services.";
+        row.appendChild(avatar); row.appendChild(bubble); messagesEl.appendChild(row);
+        const ts = document.createElement('div'); ts.className='timestamp'; ts.textContent = formatTime(new Date()); messagesEl.appendChild(ts);
+        scrollToBottom();
+      }
+
+      // wire clear history button
+      document.getElementById('clearHistory').addEventListener('click', async ()=>{
+        if(!confirm('Clear all saved chat history?')) return;
+        try{
+          const resp = await fetch('/history/clear', {method:'POST'});
+          if(resp.ok){ messagesEl.innerHTML=''; showInitialGreeting(); }
+          else { alert('Failed to clear history'); }
+        }catch(err){ alert('Error: '+err.message); }
+      });
+
+      // start by loading history
+      loadHistoryAndInit();
+    </script>
+  </body>
+</html>
